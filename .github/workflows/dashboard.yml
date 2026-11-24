@@ -1,0 +1,55 @@
+name: Collect HN data and publish dashboard
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"   # weekly, Monday 05:17 UTC
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Collect stories and comments (pseudonymised)
+        working-directory: pipeline
+        env:
+          PSEUDONYM_SALT: ${{ secrets.PSEUDONYM_SALT }}   # optional
+          MAX_TOP: "300"
+          MAX_LOW: "700"
+        run: python scrape.py
+      - name: Topic model + sentiment
+        working-directory: pipeline
+        run: python analyze.py
+      - name: Assemble site (dashboard only; raw data is not published)
+        run: |
+          mkdir _site
+          cp dashboard/index.html dashboard/d3.min.js dashboard/data.json _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

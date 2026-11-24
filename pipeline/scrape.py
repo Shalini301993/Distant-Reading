@@ -1,6 +1,6 @@
 """Collect HN stories + comment trees about conspiracy theories via the public Algolia HN API.
 Usernames are pseudonymised in-memory; raw handles are never written to disk."""
-import json, sys, time, requests
+import json, os, random, sys, time, requests
 from concurrent.futures import ThreadPoolExecutor
 from common import DATA, REL, clean, scrub_mentions, pseudonym, tech_era
 
@@ -8,7 +8,7 @@ API = "https://hn.algolia.com/api/v1"
 QUERIES = ["conspiracy theories", "conspiracy theory", "conspiracy", "conspiracist", "chemtrails",
            "moon landing hoax", "5G conspiracy", "QAnon", "misinformation", "flat earth", "deep state",
            "AI conspiracy", "crypto conspiracy", "vaccine conspiracy", "tinfoil", "false flag"]
-YEARS = range(2007, 2027)
+YEARS = range(2007, time.gmtime().tm_year + 1)
 S = requests.Session(); S.headers["User-Agent"] = "distant-reading-research/0.1"
 
 def get(url, **params):
@@ -63,10 +63,12 @@ def main():
                      "tech_era": tech_era(title + " " + (h.get("url") or "") + " " + text),
                      "hn_link": f"https://news.ycombinator.com/item?id={h['objectID']}"})
     rows.sort(key=lambda r: -r["points"])
-    # comments: all high-traction stories + a sample of low-traction ones, so both ends are compared
+    # comments: top-traction stories + a random sample of the rest, so topics are covered evenly
     discussed = [r for r in rows if r["num_comments"] >= 5]
-    top = discussed[:250]
-    low = [r for r in discussed if r["points"] <= 5][:150]
+    top = discussed[:int(os.environ.get("MAX_TOP", 250))]
+    rest = [r for r in discussed[len(top):]]   # everything below the top-traction cut-off
+    random.Random(0).shuffle(rest)
+    low = rest[:int(os.environ.get("MAX_LOW", 150))]   # seeded random sample across mid/low traction
     target = {r["id"] for r in top + low}
     for r in rows: r["comments_fetched"] = r["id"] in target
     print(f"{len(rows)} stories; fetching comments for {len(target)}", file=sys.stderr)

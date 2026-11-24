@@ -12,6 +12,10 @@ NOUN = ["otter","falcon","heron","lynx","magpie","newt","osprey","panda","quokka
         "urchin","vole","walrus","yak","badger","civet","dingo","egret","finch","gecko","ibis","jackal"]
 
 def _salt() -> bytes:
+    # CI: PSEUDONYM_SALT repository secret keeps pseudonyms stable across runs.
+    # If unset, a random per-run salt is used (still non-reversible, just not stable between runs).
+    if os.environ.get("PSEUDONYM_SALT"):
+        return os.environ["PSEUDONYM_SALT"].encode()
     if not SALT_FILE.exists():
         SALT_FILE.write_bytes(os.urandom(32))
     return SALT_FILE.read_bytes()

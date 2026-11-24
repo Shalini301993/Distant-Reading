@@ -17,7 +17,7 @@ h1{font-size:1.6rem;margin:0 0 4px}.sub{color:var(--mute);margin:0 0 16px;max-wi
 .card.wide{grid-column:1/-1}.card h2{font-size:1rem;margin:0}.card p.d{color:var(--mute);font-size:.82rem;margin:2px 0 8px}
 svg{width:100%;height:auto;display:block}text{fill:var(--ink);font-size:11px}.axis path,.axis line{stroke:var(--line)}.axis text{fill:var(--mute)}
 #tip{position:fixed;pointer-events:none;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;max-width:300px;box-shadow:0 4px 14px #0003;opacity:0;z-index:9}
-.ex{border-left:3px solid var(--line);padding:4px 10px;margin:8px 0;font-size:.85rem}.ex small{color:var(--mute)}
+.ex{border-left:3px solid var(--line);padding:4px 10px;margin:8px 0;font-size:.85rem}.ex small{color:var(--mute)}.ex a{color:var(--accent);text-decoration:none}.ex a:hover{text-decoration:underline}
 footer{color:var(--mute);font-size:.8rem;padding:0 0 30px}
 @media(max-width:800px){.grid{grid-template-columns:1fr}}
 </style></head><body>
@@ -28,11 +28,12 @@ footer{color:var(--mute);font-size:.8rem;padding:0 0 30px}
 <div class="controls" id="controls"></div>
 </header>
 <main><div class="grid">
-<div class="card wide"><h2>Topics</h2><p class="d">Bubble size = stories; colour = mean comment sentiment (red negative, green positive). Click a topic to filter every chart.</p><svg id="topics" viewBox="0 0 1100 330"></svg></div>
+<div class="card wide"><h2>Topics</h2><p class="d">Bar length = number of stories; colour = mean comment sentiment (red negative, green positive; grey-yellow = neutral or no comments). Click a topic to filter every chart.</p><svg id="topics" viewBox="0 0 1100 330"></svg></div>
 <div class="card wide"><h2>Traction vs. sentiment</h2><p class="d">Each dot is a story: points (log scale) against mean sentiment of its comments. Dot size = comment count; colour = topic.</p><svg id="scatter" viewBox="0 0 1100 400"></svg></div>
 <div class="card"><h2>Which topics gain or lose traction?</h2><p class="d">Share of each topic's stories in the top quartile vs. bottom quartile of points.</p><svg id="traction" viewBox="0 0 540 380"></svg></div>
 <div class="card"><h2>Old tech vs. new tech</h2><p class="d">Sentiment distribution of stories by technology era (keyword-tagged from title and text).</p><svg id="era" viewBox="0 0 540 380"></svg></div>
 <div class="card wide"><h2>Over time</h2><p class="d">Bars: stories per year. Line: mean sentiment of comments (stories with scored comments only).</p><svg id="time" viewBox="0 0 1100 260"></svg></div>
+<div class="card wide"><h2>Most-discussed stories in this selection</h2><p class="d">Links open the original thread on Hacker News.</p><div id="top"></div></div>
 <div class="card wide"><h2 id="exh">Sample comments</h2><p class="d">Most negative and most positive comments in the selected topic (pseudonymous authors).</p><div id="examples"></div></div>
 </div></main>
 <main><footer id="foot"></footer></main>
@@ -56,12 +57,18 @@ ctl.append("button").text("Clear topic").on("click",()=>{state.topic=null;draw()
 const label=t=>`T${t.id+1}: ${t.terms.slice(0,3).join(", ")}`;
 
 function topics(){const svg=d3.select("#topics");svg.selectAll("*").remove();
- const root=d3.hierarchy({children:T}).sum(d=>Math.max(d.n,1)),pk=d3.pack().size([1100,330]).padding(8)(root);
- const g=svg.selectAll("g").data(pk.leaves()).join("g").attr("transform",d=>`translate(${d.x},${d.y})`).style("cursor","pointer").on("click",(e,d)=>{state.topic=state.topic===d.data.id?null:d.data.id;draw()})
-  .on("mousemove",(e,d)=>show(`<b>${label(d.data)}</b><br>${d.data.terms.join(", ")}<br>${d.data.n} stories · mean ${fmt(d.data.mean_points)} pts<br>sentiment ${sf(d.data.mean_sentiment)}`,e)).on("mouseout",hide);
- g.append("circle").attr("r",d=>d.r).attr("fill",d=>sentCol(d.data.mean_sentiment)).attr("fill-opacity",.75).attr("stroke",d=>state.topic===d.data.id?css("--ink"):color(d.data.id)).attr("stroke-width",d=>state.topic===d.data.id?4:2);
- g.append("text").attr("text-anchor","middle").attr("dy",".3em").style("fill","#111").style("font-weight",600).text(d=>d.r>34?`T${d.data.id+1}`:"");
- g.filter(d=>d.r>46).append("text").attr("text-anchor","middle").attr("dy","1.7em").style("fill","#111").style("font-size","10px").text(d=>d.data.terms.slice(0,2).join(" · "));}
+ const rows=[...T].sort((a,b)=>b.n-a.n),m={l:330,r:70,t:6,b:6},w=1100,rh=26,h=m.t+m.b+rows.length*rh;svg.attr("viewBox",`0 0 ${w} ${h}`);
+ const x=d3.scaleLinear().domain([0,d3.max(rows,d=>d.n)]).range([m.l,w-m.r]);
+ const g=svg.selectAll("g").data(rows).join("g").attr("transform",(d,i)=>`translate(0,${m.t+i*rh})`).style("cursor","pointer").attr("opacity",d=>state.topic==null||state.topic===d.id?1:.35)
+  .on("click",(e,d)=>{state.topic=state.topic===d.id?null:d.id;draw()})
+  .on("mousemove",(e,d)=>show(`<b>${label(d)}</b><br>${d.terms.join(", ")}<br>${d.n} stories · mean ${fmt(d.mean_points)} pts · ${fmt(d.mean_comments)} comments<br>comment sentiment ${sf(d.mean_sentiment)}`,e)).on("mouseout",hide);
+ g.append("text").attr("x",m.l-8).attr("y",rh/2+3).attr("text-anchor","end").text(d=>`T${d.id+1}  ${d.terms.slice(0,4).join(" · ")}`.slice(0,52));
+ g.append("rect").attr("x",m.l).attr("y",3).attr("height",rh-8).attr("width",d=>x(d.n)-m.l).attr("rx",3).attr("fill",d=>sentCol(d.mean_sentiment)).attr("stroke",d=>state.topic===d.id?css("--ink"):"none").attr("stroke-width",2);
+ g.append("text").attr("x",d=>x(d.n)+6).attr("y",rh/2+3).style("fill",css("--mute")).text(d=>d.n);}
+
+function stories(){const el=d3.select("#top").html("");const S=D.stories.filter(s=>(state.topic==null||s.topic===state.topic)&&(state.era==="all"||s.tech_era===state.era)).sort((a,b)=>b.num_comments-a.num_comments).slice(0,8);
+ S.forEach(s=>el.append("div").attr("class","ex").style("border-color",s.sentiment==null?css("--line"):sentCol(s.sentiment)).html(`<a href="${s.hn_link}" target="_blank" rel="noopener">${s.title.replace(/</g,"&lt;")}</a><br><small>${s.year} · ${s.points} pts · ${s.num_comments} comments · era ${s.tech_era}${s.sentiment==null?"":" · sentiment "+sf(s.sentiment)}</small>`));
+ if(!S.length)el.text("No stories for this selection.");}
 
 function scatter(){const svg=d3.select("#scatter");svg.selectAll("*").remove();const m={l:50,r:20,t:10,b:36},w=1100,h=400,S=filt();
  const x=d3.scaleSymlog().constant(5).domain([0,d3.max(D.stories,d=>d.points)]).range([m.l,w-m.r]),y=d3.scaleLinear().domain([-.6,.6]).range([h-m.b,m.t]),r=d3.scaleSqrt().domain([0,d3.max(D.stories,d=>d.num_comments)]).range([2,16]);
@@ -87,7 +94,7 @@ function era(){const svg=d3.select("#era");svg.selectAll("*").remove();const m={
  svg.append("g").attr("class","axis").attr("transform",`translate(0,${h-m.b})`).call(d3.axisBottom(x).tickFormat(e=>({old:"Old tech",new:"New tech",both:"Both",none:"Neither"}[e])+` (${S.filter(s=>s.tech_era===e).length})`));
  svg.append("g").attr("class","axis").attr("transform",`translate(${m.l},0)`).call(d3.axisLeft(y));
  svg.append("line").attr("x1",m.l).attr("x2",w-m.r).attr("y1",y(0)).attr("y2",y(0)).attr("stroke",css("--line")).attr("stroke-dasharray","4");
- eras.forEach(e=>{const v=S.filter(s=>s.tech_era===e).map(s=>s.sentiment).sort(d3.ascending);if(v.length<3)return;
+ eras.forEach(e=>{const v=S.filter(s=>s.tech_era===e).map(s=>s.sentiment).sort(d3.ascending);if(v.length<3){svg.append("text").attr("x",x(e)+x.bandwidth()/2).attr("y",y(0)-8).attr("text-anchor","middle").style("fill",css("--mute")).text("too few");return;}
   const q=p=>d3.quantile(v,p),cx=x(e)+x.bandwidth()/2;
   svg.append("line").attr("x1",cx).attr("x2",cx).attr("y1",y(q(.05))).attr("y2",y(q(.95))).attr("stroke",css("--mute"));
   svg.append("rect").attr("x",x(e)).attr("width",x.bandwidth()).attr("y",y(q(.75))).attr("height",y(q(.25))-y(q(.75))).attr("fill",sentCol(q(.5))).attr("fill-opacity",.8).attr("stroke",css("--mute"))
@@ -108,7 +115,7 @@ function examples(){const el=d3.select("#examples").html("");const k=state.topic
  d3.select("#exh").text(k==null?"Sample comments (pick a topic)":`Sample comments — ${label(T[k])}`);
  (k==null?[]:D.examples[k]||[]).forEach(c=>el.append("div").attr("class","ex").style("border-color",sentCol(c.sentiment)).html(`<small>${c.author} · sentiment ${sf(c.sentiment)}</small><br>`).append("span").text(c.text));}
 
-function draw(){d3.selectAll("#controls button[data-k]").classed("on",function(){return this.dataset.k===state.era});topics();scatter();traction();era();time();examples();}
+function draw(){d3.selectAll("#controls button[data-k]").classed("on",function(){return this.dataset.k===state.era});topics();stories();scatter();traction();era();time();examples();}
 d3.select("#foot").text(D.meta.note+" Sentiment is lexicon-based (VADER) and misreads sarcasm; era tags are keyword heuristics. Data: HN Algolia API.");
 draw();});
 </script></body></html>
