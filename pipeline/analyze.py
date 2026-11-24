@@ -1,11 +1,12 @@
-"""Topic modelling (TF-IDF + NMF) and sentiment (VADER) -> dashboard/data.json"""
+"""Topic modelling on story TITLES only (TF-IDF + NMF) and comment sentiment (VADER) -> dashboard/data.json.
+Titles exist for every story, so all stories are modelled the same way regardless of whether comments were fetched."""
 import json, re, collections, numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer, ENGLISH_STOP_WORDS
 from sklearn.decomposition import NMF
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from common import DATA, ROOT, REL
 
-K = 12
+K = 10
 EXTRA_STOP = set("""conspiracy conspiracies conspiratorial theory theories theorist theorists theorists believe believers people like just don think know really make time good use way want thing things said say going actually
 point need right better lot sure maybe yes does did doesn didn isn wasn aren ve ll com www http https https href""".split())
 
@@ -30,10 +31,10 @@ for s in stories:
     for c in cs: c["sentiment"] = vs.polarity_scores(c["text"])["compound"]
     s["n_scored"] = len(cs)
     s["sentiment"] = float(np.mean([c["sentiment"] for c in cs])) if cs else None  # comment sentiment only; no fallback to title
-    s["doc"] = " ".join([s["title"]] * 3 + [s["text"]] + [c["text"] for c in cs])
+    s["doc"] = s["title"]
 
 stop = list(ENGLISH_STOP_WORDS | EXTRA_STOP)
-vec = TfidfVectorizer(stop_words=stop, max_df=0.5, min_df=5, max_features=6000, ngram_range=(1, 2),
+vec = TfidfVectorizer(stop_words=stop, max_df=0.4, min_df=4, max_features=6000, ngram_range=(1, 2),
                       token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z]{2,}\b")
 X = vec.fit_transform([s["doc"] for s in stories])
 nmf = NMF(n_components=K, random_state=0, init="nndsvda", max_iter=500)
