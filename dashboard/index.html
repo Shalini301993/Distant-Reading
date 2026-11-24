@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Distant Reading: Conspiracy Theories on HN</title>
+<style>
+:root{--bg:#fafaf7;--card:#fff;--ink:#1d2330;--mute:#667085;--line:#e4e4de;--pos:#2a7f62;--neg:#b5483a;--accent:#3b5bdb}
+@media(prefers-color-scheme:dark){:root{--bg:#14171f;--card:#1c212c;--ink:#e8eaf0;--mute:#9aa3b5;--line:#2c3342;--pos:#5cc3a0;--neg:#e58a7b;--accent:#8ea2ff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
+header,main{max-width:1180px;margin:0 auto;padding:0 16px}header{padding-top:28px}
+h1{font-size:1.6rem;margin:0 0 4px}.sub{color:var(--mute);margin:0 0 16px;max-width:75ch}
+.stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px}.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 14px}
+.stat b{display:block;font-size:1.25rem}.stat span{color:var(--mute);font-size:.8rem}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 16px}
+.controls button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:5px 12px;cursor:pointer;font:inherit;font-size:.85rem}
+.controls button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;padding-bottom:40px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+.card.wide{grid-column:1/-1}.card h2{font-size:1rem;margin:0}.card p.d{color:var(--mute);font-size:.82rem;margin:2px 0 8px}
+svg{width:100%;height:auto;display:block}text{fill:var(--ink);font-size:11px}.axis path,.axis line{stroke:var(--line)}.axis text{fill:var(--mute)}
+#tip{position:fixed;pointer-events:none;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;max-width:300px;box-shadow:0 4px 14px #0003;opacity:0;z-index:9}
+.ex{border-left:3px solid var(--line);padding:4px 10px;margin:8px 0;font-size:.85rem}.ex small{color:var(--mute)}
+footer{color:var(--mute);font-size:.8rem;padding:0 0 30px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+</style></head><body>
+<header>
+<h1>Conspiracy theories on Hacker News</h1>
+<p class="sub">Topic modelling (TF-IDF + NMF) and sentiment (VADER) across HN stories and their comment threads, compared by traction and by whether the thread concerns old or new technology. Every account is a pseudonym.</p>
+<div class="stats" id="stats"></div>
+<div class="controls" id="controls"></div>
+</header>
+<main><div class="grid">
+<div class="card wide"><h2>Topics</h2><p class="d">Bubble size = stories; colour = mean comment sentiment (red negative, green positive). Click a topic to filter every chart.</p><svg id="topics" viewBox="0 0 1100 330"></svg></div>
+<div class="card wide"><h2>Traction vs. sentiment</h2><p class="d">Each dot is a story: points (log scale) against mean sentiment of its comments. Dot size = comment count; colour = topic.</p><svg id="scatter" viewBox="0 0 1100 400"></svg></div>
+<div class="card"><h2>Which topics gain or lose traction?</h2><p class="d">Share of each topic's stories in the top quartile vs. bottom quartile of points.</p><svg id="traction" viewBox="0 0 540 380"></svg></div>
+<div class="card"><h2>Old tech vs. new tech</h2><p class="d">Sentiment distribution of stories by technology era (keyword-tagged from title and text).</p><svg id="era" viewBox="0 0 540 380"></svg></div>
+<div class="card wide"><h2>Over time</h2><p class="d">Bars: stories per year. Line: mean sentiment of comments (stories with scored comments only).</p><svg id="time" viewBox="0 0 1100 260"></svg></div>
+<div class="card wide"><h2 id="exh">Sample comments</h2><p class="d">Most negative and most positive comments in the selected topic (pseudonymous authors).</p><div id="examples"></div></div>
+</div></main>
+<main><footer id="foot"></footer></main>
+<div id="tip"></div>
+<script src="d3.min.js"></script>
+<script>
+d3.json("data.json").then(D=>{
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const color=d3.scaleOrdinal([...d3.schemeTableau10,"#8c6d31","#7b4173"]),tip=d3.select("#tip");
+const sentCol=d3.scaleDiverging(d3.interpolateRdYlGn).domain([-.4,0,.4]).clamp(true);
+const state={topic:null,era:"all"};
+const T=D.topics,fmt=d3.format(",.0f"),sf=d3.format("+.2f");
+const show=(h,e)=>tip.html(h).style("opacity",1).style("left",Math.min(e.clientX+14,innerWidth-320)+"px").style("top",(e.clientY+14)+"px");
+const hide=()=>tip.style("opacity",0);
+const filt=()=>D.stories.filter(s=>s.sentiment!=null&&(state.topic==null||s.topic===state.topic)&&(state.era==="all"||s.tech_era===state.era));
+// header
+d3.select("#stats").selectAll("div").data([[D.meta.stories,"stories"],[D.stories.filter(s=>s.sentiment!=null).length,"with scored comments"],[D.meta.comments_scored,"comments scored"],[D.meta.topics,"topics"],[d3.extent(D.yearly,d=>d.year).join("–"),"years"]]).join("div").attr("class","stat").html(d=>`<b>${typeof d[0]==="number"?fmt(d[0]):d[0]}</b><span>${d[1]}</span>`);
+const ctl=d3.select("#controls");
+[["all","All eras"],["old","Old tech"],["new","New tech"],["both","Both"],["none","Neither"]].forEach(([k,l])=>ctl.append("button").text(l).attr("data-k",k).on("click",()=>{state.era=k;draw()}));
+ctl.append("button").text("Clear topic").on("click",()=>{state.topic=null;draw()});
+const label=t=>`T${t.id+1}: ${t.terms.slice(0,3).join(", ")}`;
+
+function topics(){const svg=d3.select("#topics");svg.selectAll("*").remove();
+ const root=d3.hierarchy({children:T}).sum(d=>Math.max(d.n,1)),pk=d3.pack().size([1100,330]).padding(8)(root);
+ const g=svg.selectAll("g").data(pk.leaves()).join("g").attr("transform",d=>`translate(${d.x},${d.y})`).style("cursor","pointer").on("click",(e,d)=>{state.topic=state.topic===d.data.id?null:d.data.id;draw()})
+  .on("mousemove",(e,d)=>show(`<b>${label(d.data)}</b><br>${d.data.terms.join(", ")}<br>${d.data.n} stories · mean ${fmt(d.data.mean_points)} pts<br>sentiment ${sf(d.data.mean_sentiment)}`,e)).on("mouseout",hide);
+ g.append("circle").attr("r",d=>d.r).attr("fill",d=>sentCol(d.data.mean_sentiment)).attr("fill-opacity",.75).attr("stroke",d=>state.topic===d.data.id?css("--ink"):color(d.data.id)).attr("stroke-width",d=>state.topic===d.data.id?4:2);
+ g.append("text").attr("text-anchor","middle").attr("dy",".3em").style("fill","#111").style("font-weight",600).text(d=>d.r>34?`T${d.data.id+1}`:"");
+ g.filter(d=>d.r>46).append("text").attr("text-anchor","middle").attr("dy","1.7em").style("fill","#111").style("font-size","10px").text(d=>d.data.terms.slice(0,2).join(" · "));}
+
+function scatter(){const svg=d3.select("#scatter");svg.selectAll("*").remove();const m={l:50,r:20,t:10,b:36},w=1100,h=400,S=filt();
+ const x=d3.scaleSymlog().constant(5).domain([0,d3.max(D.stories,d=>d.points)]).range([m.l,w-m.r]),y=d3.scaleLinear().domain([-.6,.6]).range([h-m.b,m.t]),r=d3.scaleSqrt().domain([0,d3.max(D.stories,d=>d.num_comments)]).range([2,16]);
+ svg.append("g").attr("class","axis").attr("transform",`translate(0,${h-m.b})`).call(d3.axisBottom(x).tickValues([0,5,10,50,100,500,1000,2000].filter(v=>v<=x.domain()[1])).tickFormat(d3.format(",")));
+ svg.append("g").attr("class","axis").attr("transform",`translate(${m.l},0)`).call(d3.axisLeft(y).ticks(7));
+ svg.append("line").attr("x1",m.l).attr("x2",w-m.r).attr("y1",y(0)).attr("y2",y(0)).attr("stroke",css("--line")).attr("stroke-dasharray","4");
+ svg.append("text").attr("x",w/2).attr("y",h-4).attr("text-anchor","middle").text("points (symlog)");
+ svg.append("text").attr("transform",`translate(12,${h/2}) rotate(-90)`).attr("text-anchor","middle").text("mean comment sentiment");
+ svg.selectAll("circle.d").data(S).join("circle").attr("class","d").attr("cx",d=>x(d.points)).attr("cy",d=>y(Math.max(-.6,Math.min(.6,d.sentiment)))).attr("r",d=>r(d.num_comments)).attr("fill",d=>color(d.topic)).attr("fill-opacity",.55).attr("stroke",d=>color(d.topic))
+  .on("mousemove",(e,d)=>show(`<b>${d.title}</b><br>${d.year} · ${d.points} pts · ${d.num_comments} comments<br>sentiment ${sf(d.sentiment)} · era: ${d.tech_era}<br><i>click to open on HN</i>`,e)).on("mouseout",hide).on("click",(e,d)=>window.open(d.hn_link,"_blank","noopener"));}
+
+function traction(){const svg=d3.select("#traction");svg.selectAll("*").remove();const m={l:150,r:20,t:24,b:30},w=540,h=380,rows=T.filter(t=>t.n);
+ const y=d3.scaleBand().domain(rows.map(t=>t.id)).range([m.t,h-m.b]).padding(.25),x=d3.scaleLinear().domain([0,1]).range([m.l,w-m.r]);
+ svg.append("g").attr("class","axis").attr("transform",`translate(0,${h-m.b})`).call(d3.axisBottom(x).ticks(5).tickFormat(d3.format(".0%")));
+ svg.append("g").attr("class","axis").call(g=>g.attr("transform",`translate(${m.l},0)`).call(d3.axisLeft(y).tickFormat(i=>label(T[i]).slice(0,24))));
+ [["high_share","Top quartile",css("--pos"),0],["low_share","Bottom quartile",css("--neg"),1]].forEach(([k,n,c,i])=>{
+  svg.selectAll("r"+i).data(rows).join("rect").attr("x",m.l).attr("y",d=>y(d.id)+i*y.bandwidth()/2).attr("height",y.bandwidth()/2).attr("width",d=>x(d[k])-m.l).attr("fill",c).attr("opacity",d=>state.topic==null||state.topic===d.id?1:.25).style("cursor","pointer").on("click",(e,d)=>{state.topic=d.id;draw()})
+   .on("mousemove",(e,d)=>show(`<b>${label(d)}</b><br>${n}: ${d3.format(".0%")(d[k])} of ${d.n} stories`,e)).on("mouseout",hide);
+  svg.append("rect").attr("x",m.l+i*140).attr("y",4).attr("width",10).attr("height",10).attr("fill",c);svg.append("text").attr("x",m.l+i*140+14).attr("y",13).text(n);});}
+
+function era(){const svg=d3.select("#era");svg.selectAll("*").remove();const m={l:50,r:20,t:10,b:36},w=540,h=380,eras=["old","new","both","none"],S=D.stories.filter(s=>s.sentiment!=null&&(state.topic==null||s.topic===state.topic));
+ const x=d3.scaleBand().domain(eras).range([m.l,w-m.r]).padding(.3),y=d3.scaleLinear().domain([-1,1]).range([h-m.b,m.t]);
+ svg.append("g").attr("class","axis").attr("transform",`translate(0,${h-m.b})`).call(d3.axisBottom(x).tickFormat(e=>({old:"Old tech",new:"New tech",both:"Both",none:"Neither"}[e])+` (${S.filter(s=>s.tech_era===e).length})`));
+ svg.append("g").attr("class","axis").attr("transform",`translate(${m.l},0)`).call(d3.axisLeft(y));
+ svg.append("line").attr("x1",m.l).attr("x2",w-m.r).attr("y1",y(0)).attr("y2",y(0)).attr("stroke",css("--line")).attr("stroke-dasharray","4");
+ eras.forEach(e=>{const v=S.filter(s=>s.tech_era===e).map(s=>s.sentiment).sort(d3.ascending);if(v.length<3)return;
+  const q=p=>d3.quantile(v,p),cx=x(e)+x.bandwidth()/2;
+  svg.append("line").attr("x1",cx).attr("x2",cx).attr("y1",y(q(.05))).attr("y2",y(q(.95))).attr("stroke",css("--mute"));
+  svg.append("rect").attr("x",x(e)).attr("width",x.bandwidth()).attr("y",y(q(.75))).attr("height",y(q(.25))-y(q(.75))).attr("fill",sentCol(q(.5))).attr("fill-opacity",.8).attr("stroke",css("--mute"))
+   .on("mousemove",ev=>show(`<b>${e}</b> · n=${v.length}<br>median ${sf(q(.5))}<br>IQR ${sf(q(.25))} to ${sf(q(.75))}`,ev)).on("mouseout",hide);
+  svg.append("line").attr("x1",x(e)).attr("x2",x(e)+x.bandwidth()).attr("y1",y(q(.5))).attr("y2",y(q(.5))).attr("stroke",css("--ink")).attr("stroke-width",2);});}
+
+function time(){const svg=d3.select("#time");svg.selectAll("*").remove();const m={l:50,r:50,t:10,b:30},w=1100,h=260,Y=D.yearly,YS=Y.filter(d=>d.mean_sentiment!=null);
+ const x=d3.scaleBand().domain(Y.map(d=>d.year)).range([m.l,w-m.r]).padding(.2),yc=d3.scaleLinear().domain([0,d3.max(Y,d=>d.n)]).nice().range([h-m.b,m.t]),ys=d3.scaleLinear().domain(d3.extent(YS,d=>d.mean_sentiment)).nice().range([h-m.b,m.t]);
+ svg.append("g").attr("class","axis").attr("transform",`translate(0,${h-m.b})`).call(d3.axisBottom(x));svg.append("g").attr("class","axis").attr("transform",`translate(${m.l},0)`).call(d3.axisLeft(yc).ticks(5));
+ svg.append("g").attr("class","axis").attr("transform",`translate(${w-m.r},0)`).call(d3.axisRight(ys).ticks(5));
+ svg.selectAll("rect").data(Y).join("rect").attr("x",d=>x(d.year)).attr("width",x.bandwidth()).attr("y",d=>yc(d.n)).attr("height",d=>h-m.b-yc(d.n)).attr("fill",css("--accent")).attr("opacity",.45);
+ const ln=d3.line().x(d=>x(d.year)+x.bandwidth()/2).y(d=>ys(d.mean_sentiment));
+ svg.append("path").datum(YS).attr("fill","none").attr("stroke",css("--neg")).attr("stroke-width",2.5).attr("d",ln);
+ svg.selectAll("circle").data(YS).join("circle").attr("cx",d=>x(d.year)+x.bandwidth()/2).attr("cy",d=>ys(d.mean_sentiment)).attr("r",4).attr("fill",css("--neg"))
+  .on("mousemove",(e,d)=>show(`<b>${d.year}</b><br>${d.n} stories · ${fmt(d.mean_points)} avg pts<br>sentiment ${sf(d.mean_sentiment)}`,e)).on("mouseout",hide);}
+
+function examples(){const el=d3.select("#examples").html("");const k=state.topic;
+ d3.select("#exh").text(k==null?"Sample comments (pick a topic)":`Sample comments — ${label(T[k])}`);
+ (k==null?[]:D.examples[k]||[]).forEach(c=>el.append("div").attr("class","ex").style("border-color",sentCol(c.sentiment)).html(`<small>${c.author} · sentiment ${sf(c.sentiment)}</small><br>`).append("span").text(c.text));}
+
+function draw(){d3.selectAll("#controls button[data-k]").classed("on",function(){return this.dataset.k===state.era});topics();scatter();traction();era();time();examples();}
+d3.select("#foot").text(D.meta.note+" Sentiment is lexicon-based (VADER) and misreads sarcasm; era tags are keyword heuristics. Data: HN Algolia API.");
+draw();});
+</script></body></html>
